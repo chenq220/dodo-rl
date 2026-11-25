@@ -1,0 +1,40 @@
+syntax = "proto3";
+
+package dodorl.rpc;
+
+message RpcRequest {
+  string method = 1;
+  bytes payload = 2;
+}
+
+message RpcResponse {
+  bool ok = 1;
+  bytes payload = 2;
+  string error_type = 3;
+  string error_message = 4;
+  string traceback = 5;
+}
+
+service ReplayBufferRpc {
+  rpc Call(RpcRequest) returns (RpcResponse);
+}
+
+service TrainTaskManagerRpc {
+  rpc Call(RpcRequest) returns (RpcResponse);
+}
+
+service ModelManagerRpc {
+  rpc Call(RpcRequest) returns (RpcResponse);
+}
+
+service SimManagerRpc {
+  rpc Call(RpcRequest) returns (RpcResponse);
+}
+
+service MonteCarloMethodRpc {
+  rpc Call(RpcRequest) returns (RpcResponse);
+}
+
+service ArtifactsManagerRpc {
+  rpc Call(RpcRequest) returns (RpcResponse);
+}

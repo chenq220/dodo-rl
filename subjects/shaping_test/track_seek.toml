@@ -1,0 +1,146 @@
+# Track seek：单智能体 PPO，理想距离 d=0，蓝点追踪移动红点
+# 奖励 = region_visible_target_seek_shaping × reward_seek
+[design]
+task_name = "track_seek"
+root_dir = "{{project_root}}"
+resource_dir = "${root_dir}/artifacts"
+max_step_per_episode = 100
+max_episode = 1201
+mid_eval_episode_interval = 200
+stage_names = ["train"]
+
+tracker_agent_names = ["tracker-0"]
+env_agent_names = "${tracker_agent_names}"
+# 观测态势 8 维（TrackSeekEnv._obs_from_state，各分量归一化到 [0, 1]）：
+# [0] observer_x / scene_width
+# [1] observer_y / scene_height
+# [2] rel_x：最近目标相对 observer 的 dx，clip(dx/width, -1, 1) * 0.5 + 0.5
+# [3] rel_y：最近目标相对 observer 的 dy，同上
+# [4] dist_norm：min(1, dist_to_nearest / max_deviation)
+# [5] target_vx / TARGET_SPEED，clip 后 * 0.5 + 0.5
+# [6] target_vy / TARGET_SPEED，clip 后 * 0.5 + 0.5
+# [7] has_target：region 内存在最近目标时为 1，否则 0
+obs_dim = 8
+state_dim = "${obs_dim}"
+
+sense_name = "${task_name}"
+reward_seek = 0.15
+# 过小会导致远距离 Φ=0、无梯度；建议取场景对角线量级
+max_deviation = 640.0
+
+[stages.0]
+name = "train"
+learners = ["tracker"]
+
+[stages.0.train_overrides]
+max_episode = "${max_episode}"
+
+[stages.0.learner_overrides.tracker.algo_config]
+lr = 0.001
+n_steps = 1024
+n_epochs = 10
+ent_coef = 0.01
+
+[train_config]
+max_episode = "${max_episode}"
+start_epsilon = 0.0
+end_epsilon = 0.0
+sample_learn_max_lag = 1
+temperature = 1.0
+temperature_episodes = 0
+agent_compose_type = "order"
+record_sample = false
+model_save_dir = "${resource_dir}/models/shaping_test/track_seek"
+model_load_dir = "${resource_dir}/models/shaping_test/track_seek"
+result_save_dir = "${resource_dir}/results/shaping_test/track_seek"
+render_video_dir = "${resource_dir}/recordings/shaping_test/track_seek"
+mid_eval_enabled = true
+mid_eval_episode_interval = "${mid_eval_episode_interval}"
+seed = "1188934379"
+
+[auto_ml_config]
+enabled = false
+subject_name = "${sense_name}"
+
+[env_config]
+sense_name = "${sense_name}"
+use_sim = false
+max_step_per_episode = "${max_step_per_episode}"
+state_dim = "${state_dim}"
+agent_names = "${env_agent_names}"
+
+[env_config.metadata]
+max_deviation = "${max_deviation}"
+# PBRS 步奖励 F=γΦ'−Φ；γ<1 且 Φ>0 时每步有 (γ−1)Φ 负漂移，单 seek 课程建议 1.0
+shaping_gamma = 1.0
+output_range = "unit"
+num_targets = 1
+# 先 false 验证塑形可学，再改 true 测动态目标
+targets_moving = true
+render_mode = "rgb_array"
+render_every_step = false
+
+[env_config.metadata.reward_weights]
+seek = "${reward_seek}"
+
+[replay_buffer_config]
+recent_ratio = 0.35
+
+[agents.0]
+name = "tracker"
+device = "cpu"
+agent_type = "sb3"
+agent_names = "${tracker_agent_names}"
+obs_dim = "${obs_dim}"
+state_shape = "${state_dim}"
+obs_last_action = false
+obs_agent_id = false
+hidden_dim = 64
+
+[agents.0.actions.0]
+action_key = "track_move"
+add_target = false
+allow_null_targets = true
+
+[agents.0.actions.0.parameters.0]
+key = "action_id"
+values = [0, 1, 2, 3, 4]
+
+[learners.0]
+name = "tracker"
+device = "cpu"
+algo_type = "ppo"
+state_shape = "${state_dim}"
+common_reward = true
+standardise_rewards = true
+standardise_returns = true
+grad_norm_clip = 10.0
+gamma = 0.99
+
+[learners.0.algo_config]
+capacity = 100
+lr = 0.001
+hidden_dim = 64
+batch_size = 1000
+sample_strategy = "on_policy_cursor_steps"
+learn_times_per_episode = 1
+minibatch_size = 64
+n_steps = 1024
+n_epochs = 10
+gae_lambda = 0.95
+clip_range = 0.2
+ent_coef = 0.01
+vf_coef = 0.5
+max_grad_norm = 0.5
+normalize_advantage = true
+
+[model_manager_config]
+
+[monte_carlo_method_config]
+
+[grpc_config]
+task_manager_address = "127.0.0.1:53151"
+replay_buffer_address = "127.0.0.1:53152"
+model_manager_address = "127.0.0.1:53153"
+sim_manager_address = "127.0.0.1:53154"
+monte_carlo_method_address = "127.0.0.1:53155"

@@ -1,0 +1,155 @@
+# Threat region：绕开威胁区 + 南侧红点 seek 引导（seek 权重 = threat 的 1/3）
+# 奖励 = region_threat × threat + region_seek × seek
+[design]
+task_name = "threat_region"
+root_dir = "{{project_root}}"
+resource_dir = "${root_dir}/artifacts"
+max_step_per_episode = 200
+max_episode = 721
+mid_eval_episode_interval = 720
+stage_names = ["train"]
+
+actor_agent_names = ["actor-0"]
+env_agent_names = "${actor_agent_names}"
+# 观测态势 14 维（ThreatRegionEnv._obs_from_state，各分量归一化到 [0, 1]）：
+# [0] observer_x / scene_width
+# [1] observer_y / scene_height
+# [2] rel_gx：南侧引导红点相对 observer 的 dx，clip 后 * 0.5 + 0.5
+# [3] rel_gy：南侧引导红点相对 observer 的 dy，同上
+# [4-5] rel_v0：威胁矩形顶点 0（左上）相对 observer 的 dx/dy
+# [6-7] rel_v1：威胁矩形顶点 1（右上）
+# [8-9] rel_v2：威胁矩形顶点 2（右下）
+# [10-11] rel_v3：威胁矩形顶点 3（左下）
+# [12] d_out_norm：区外到威胁边界距离 / scene_width，区内或穿越时为 0
+# [13] threat_speed_norm：|threat_vx| / THREAT_SPEED * 0.5 + 0.5，静止时约 0.5
+obs_dim = 14
+state_dim = "${obs_dim}"
+
+sense_name = "${task_name}"
+reward_threat = 0.5
+reward_seek = "eval: reward_threat"
+max_deviation = 640.0
+# 威胁区横向速度（px/step）；0=静止，正=向右，负=向左，触边反弹
+threat_speed = 0
+# KAZ defense 用 5/H（d_sat≈96px 逼近带）；本游戏设计为「踏入/穿越才扣分」→ coef=1（d_sat=1px）
+approach_decay_coef = 0.02
+
+[stages.0]
+name = "train"
+learners = ["actor"]
+
+[stages.0.train_overrides]
+max_episode = "${max_episode}"
+
+[stages.0.learner_overrides.actor.algo_config]
+lr = 0.001
+batch_size = 2000
+sample_strategy = "on_policy_cursor_steps"
+n_steps = 1024
+n_epochs = 10
+ent_coef = 0.05
+
+[train_config]
+max_episode = "${max_episode}"
+start_epsilon = 0.0
+end_epsilon = 0.0
+sample_learn_max_lag = 1
+temperature = 1.0
+temperature_episodes = 0
+agent_compose_type = "order"
+record_sample = false
+model_save_dir = "${resource_dir}/models/shaping_test/threat_region"
+model_load_dir = "${resource_dir}/models/shaping_test/threat_region"
+result_save_dir = "${resource_dir}/results/shaping_test/threat_region"
+render_video_dir = "${resource_dir}/recordings/shaping_test/threat_region"
+mid_eval_enabled = true
+mid_eval_episode_interval = "${mid_eval_episode_interval}"
+seed = "3923963083"
+
+
+[auto_ml_config]
+enabled = false
+subject_name = "${sense_name}"
+
+[env_config]
+sense_name = "${sense_name}"
+use_sim = false
+max_step_per_episode = "${max_step_per_episode}"
+state_dim = "${state_dim}"
+agent_names = "${env_agent_names}"
+
+[env_config.metadata]
+approach_decay_coef = "${approach_decay_coef}"
+max_deviation = "${max_deviation}"
+shaping_gamma = 1.0
+output_range = "signed"
+seek_output_range = "unit"
+threat_speed = "${threat_speed}"
+render_mode = "rgb_array"
+render_every_step = false
+
+[env_config.metadata.reward_weights]
+threat = "${reward_threat}"
+seek = "${reward_seek}"
+
+[replay_buffer_config]
+recent_ratio = 0.35
+
+[agents.0]
+name = "actor"
+device = "cpu"
+agent_type = "sb3"
+agent_names = "${actor_agent_names}"
+obs_dim = "${obs_dim}"
+state_shape = "${state_dim}"
+obs_last_action = false
+obs_agent_id = false
+hidden_dim = 64
+
+[agents.0.actions.0]
+action_key = "threat_region_move"
+add_target = false
+allow_null_targets = true
+
+[agents.0.actions.0.parameters.0]
+key = "action_id"
+values = [0, 1, 2, 3]
+
+[learners.0]
+name = "actor"
+device = "cpu"
+algo_type = "ppo"
+state_shape = "${state_dim}"
+common_reward = true
+standardise_rewards = true
+standardise_returns = true
+grad_norm_clip = 10.0
+gamma = 0.99
+
+[learners.0.algo_config]
+capacity = 100
+lr = 0.001
+hidden_dim = 64
+batch_size = 1000
+sample_strategy = "on_policy_cursor_steps"
+learn_times_per_episode = 1
+minibatch_size = 64
+n_steps = 1024
+n_epochs = 10
+gae_lambda = 0.95
+clip_range = 0.2
+ent_coef = 0.01
+vf_coef = 0.5
+max_grad_norm = 0.5
+normalize_advantage = true
+
+[model_manager_config]
+
+[monte_carlo_method_config]
+
+[grpc_config]
+task_manager_address = "127.0.0.1:53151"
+replay_buffer_address = "127.0.0.1:53152"
+model_manager_address = "127.0.0.1:53153"
+sim_manager_address = "127.0.0.1:53154"
+monte_carlo_method_address = "127.0.0.1:53155"

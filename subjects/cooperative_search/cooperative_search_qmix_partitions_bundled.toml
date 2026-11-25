@@ -1,0 +1,450 @@
+# v0.15.2 四分区联合验证科目：600×600 大地图 2×2 责任区，每区 4 机侦察
+# 本区 10 个随机信号源，共 16 机、40 源。一个 uav_team Agent 分四个无名组
+# 重复推理，共享唯一 Learner/AgentNet/Mixer，QMIX 组宽固定 4。
+# 本文件为独立组样本封装模式（默认）；捆绑模式对照见
+# cooperative_search_qmix_partitions_bundled.toml。
+[design]
+# 任务逻辑名称，用于AutoML主题及相关产物标识。
+task_name = "cooperative_search_qmix_partitions_bundled"
+# 项目根目录；由配置模板运行时解析为当前工程绝对路径。
+root_dir = "{{project_root}}"
+# 模型、训练结果、概率图和评估录像等资源的统一根目录。
+resource_dir = "${root_dir}/artifacts"
+
+# 连续地图宽度，单位公里；2×2 平铺后整图 600×600。
+map_width = 600
+# 连续地图高度，单位公里。
+map_height = 600
+# 共享概率数据库横向格数；600公里划分200列后每格宽3公里，与原科目同分辨率。
+belief_grid_width = 200
+# 共享概率数据库纵向格数；600公里划分200行后每格高3公里。
+belief_grid_height = 200
+# 责任区行数；2×2 = 4 个 300×300 责任区。
+region_rows = 2
+# 责任区列数。
+region_cols = 2
+# 参与学习和协同搜索的无人机总数；每区固定 4 架，按 drone 序号连续分组。
+num_drones = 16
+# 固定策略动态威胁数量；以单成员组重复推理在全图活动，不参与主任务学习。
+num_dynamic_threats = 8
+# 全图待侦察目标总数；每局各区独立随机生成恰好 10 个。
+num_targets = 40
+# 学习无人机的固定Agent名称列表；drone_i 的责任区 = i // 4。
+drone_agent_names = ["drone_0", "drone_1", "drone_2", "drone_3", "drone_4", "drone_5", "drone_6", "drone_7", "drone_8", "drone_9", "drone_10", "drone_11", "drone_12", "drone_13", "drone_14", "drone_15"]
+# 动态威胁的固定Agent名称列表；一组八机，与环境威胁槽位一致。
+threat_agent_names = ["dynamic_threat_0", "dynamic_threat_1", "dynamic_threat_2", "dynamic_threat_3", "dynamic_threat_4", "dynamic_threat_5", "dynamic_threat_6", "dynamic_threat_7"]
+# 环境完整Agent列表：先放学习无人机，再拼接固定策略动态威胁。
+env_agent_names = "eval: drone_agent_names + threat_agent_names"
+# 由威胁专训（cooperative_search_partition_threat_qmix.toml）得到的固定策略；
+# 先运行专训科目，再把产物 final_<任务ID>_roam_0_dynamic_threats_agent_net.pth 填到这里。
+threat_model_file = "${root_dir}/artifacts/archives/6f548e77/models/roam/final_6f548e77_roam_0_dynamic_threats_agent_net.pth"
+
+# 单机局部观察的边长，单位观察格；四个图像通道均使用11×11。
+fov_size = 11
+# 手动选择责任区表征的输出长度；此值属于固定空间编码，不按输入范围自动计算。
+# 输入为每区 [3,100,100] 三通道网格（已探索掩码/共享概率信念/归一化访问次数），
+# 元素数 30000，输出 128，元素数之比 234.375:1（float32 单份 120000→512 字节）。
+representation_output_dim = 128
+# 学习无人机观察维度：原局部观测 + 本责任区空间特征。
+obs_dim = "eval: fov_size * fov_size * 4 + 3 + representation_output_dim"
+# 固定威胁观察维度：自身/圈/航点/最近同伴13维，加圆形表征160维。
+threat_obs_dim = 173
+# QMIX 组状态维度（state_for_agent_ids 口径）：区表征 + 本区 4 机坐标/航向。
+group_state_dim = "eval: representation_output_dim + (num_drones // (region_rows * region_cols)) * 4"
+# 环境全局集中状态维度（EnvConfig.state_dim 校验口径）：4 个区表征 + 无人机与威胁的坐标/航向。
+state_dim = "eval: region_rows * region_cols * representation_output_dim + (num_drones + num_dynamic_threats) * 4"
+# 单局最大环境决策步数，科目规则，不作为调参旋钮。
+max_step_per_episode = 600
+# 第一阶段基础搜索训练局数（物理 episode；每局最多产生 4 条组轨迹）。
+stage0_max_episode = 3000
+# 第二阶段带威胁闪躲训练局数。
+stage1_max_episode = 1000
+# 总训练局数，供基础TrainConfig声明整体规模。
+max_episode = "eval: stage0_max_episode + stage1_max_episode"
+train_sample_count = 5
+eval_sample_count = 8
+
+[stages.0]
+name = "search"
+learners = ["uav_team"]
+clear_replay_buffer = true
+# 离开 search 时冻结 25% active 轨迹到 rehearsal，供 evade 阶段定额回放防遗忘。
+rehearsal_archive_ratio = 0.25
+rehearsal_archive_select = "even_span"
+save_replay_buffer = false
+
+[stages.0.train_overrides]
+max_episode = "${stage0_max_episode}"
+start_epsilon = 1.0
+end_epsilon = 0.05
+epsilon_decay_episodes = "eval: stage0_max_episode * 3 // 4"
+
+[stages.0.train_overrides.env_metadata]
+dynamic_threats_enabled = false
+
+[stages.0.learner_overrides.uav_team.algo_config]
+lr = 0.0002
+learn_times_per_episode = 2
+
+[stages.1]
+name = "evade"
+learners = ["uav_team"]
+clear_replay_buffer = true
+# 每个 off-policy batch 固定 25% 来自 search rehearsal，其余来自 evade active。
+rehearsal_sample_ratio = 0.25
+save_replay_buffer = false
+
+[stages.1.train_overrides]
+max_episode = "${stage1_max_episode}"
+start_epsilon = 0.3
+end_epsilon = 0.05
+epsilon_decay_episodes = "eval: stage1_max_episode * 3 // 4"
+
+[stages.1.train_overrides.env_metadata]
+dynamic_threats_enabled = true
+
+[stages.1.learner_overrides.uav_team.algo_config]
+lr = 0.0001
+learn_times_per_episode = 1
+
+[train_config]
+max_episode = "${max_episode}"
+# 四分区600步物理局在本机多进程下约需90秒；留足采样任务租约时间。
+sample_task_timeout = 600
+start_epsilon = 1.0
+end_epsilon = 0.05
+epsilon_decay_episodes = "eval: max_episode * 2 // 3"
+agent_compose_type = "order"
+record_sample = false
+model_save_dir = "${resource_dir}/models/cooperative_search_partitions"
+model_load_dir = "${resource_dir}/models/cooperative_search_partitions"
+result_save_dir = "${resource_dir}/results/cooperative_search_partitions"
+render_video_dir = "${resource_dir}/recordings/cooperative_search_partitions"
+mid_eval_enabled = true
+mid_eval_episode_interval = 200
+end_eval_episodes = 3
+seed = "null"
+
+[auto_ml_config]
+enabled = false
+subject_name = "${task_name}"
+
+[env_config]
+sense_name = "cooperative_search_partition"
+use_sim = false
+max_step_per_episode = "${max_step_per_episode}"
+step_interval_secs = 30
+state_dim = "${state_dim}"
+agent_names = "${env_agent_names}"
+
+[env_config.metadata]
+# 单机局部观察边长（格），必须为正奇数；四个局部通道均输出11×11。
+fov_size = "${fov_size}"
+# 每个观察格聚合2×2个3公里概率格；区视图100×100与原四机科目同构。
+observation_grid_scale = 2
+# 旧科目对照参数；启用空间表征后集中状态实际改用表征向量。
+state_grid_width = 50
+state_grid_height = 50
+# 必选链路：当前责任区探索网格 → 态势表征 → 本组各机策略观测。
+situation_representation_output_dim = "${representation_output_dim}"
+# 渲染输出模式；rgb_array供盘中评估录制GIF，不弹出游戏窗口。
+render_mode = "rgb_array"
+# 是否每个环境步都主动渲染。
+render_every_step = false
+# 动态威胁默认启用（evade 阶段）；search 阶段经 train_overrides 关闭，
+# 但威胁槽位恒在以保持观察/状态维度稳定。
+dynamic_threats_enabled = true
+# 每格9平方公里，单区首次探索奖励上限与原科目一致。
+exploration_reward_per_cell = 0.00082
+# 已确认空白区域重复搜索的单局扣分预算（按区结算）。
+revisited_empty_penalty_episode_limit = 15
+# 向本区最近未探索网格靠近的团队势能奖励权重。
+frontier_potential_reward_weight = 0.03
+# 每区 10 个目标全部首次确认后的累计团队奖励总额。
+correct_detection_reward_total = 20.0
+# 确认目标数达到本区总数的80%时，累计获得总目标奖励的一半。
+correct_detection_reward_half_life_ratio = 0.8
+# 空白格首次达到概率上限时的团队扣分绝对值。
+false_detection_penalty = 0.3
+# 每损失一架学习无人机的团队扣分绝对值。
+death_penalty_per_drone = 10.0
+# 训练默认不写概率热力图；评估配置单独开启。
+save_probability_map_on_episode_end = false
+probability_map_every_n_episodes = 100
+probability_map_output_dir = "${resource_dir}/results/cooperative_search_partitions"
+
+[game_config]
+# 连续地图宽度，单位公里。
+map_width = "${map_width}"
+# 连续地图高度，单位公里。
+map_height = "${map_height}"
+# 共享概率数据库横向格数。
+belief_grid_width = "${belief_grid_width}"
+# 共享概率数据库纵向格数。
+belief_grid_height = "${belief_grid_height}"
+# 责任区行数；无人机按序连续分组，每区 num_drones/(行×列) 架。
+region_rows = "${region_rows}"
+# 责任区列数。
+region_cols = "${region_cols}"
+# 学习无人机总数。
+num_drones = "${num_drones}"
+# 动态威胁数量；本科目为 0。
+num_dynamic_threats = "${num_dynamic_threats}"
+# 全图待侦察目标总数；每局各区独立随机生成 num_targets/(行×列) 个。
+num_targets = "${num_targets}"
+# 无人机传感器扫描半径，单位公里；与原科目同扫描尺度。
+sensor_radius = 40.0
+# 动态威胁探测和击杀无人机的半径，单位公里。
+threat_sensor_radius = 30.0
+# 无人机观察中的威胁提前预警半径，单位公里。
+threat_warning_radius = 45.0
+# 固定编队连通性参考半径，不进入观察、奖励或渲染。
+communication_radius = 100.0
+# 固定编队配置的最小允许边长，单位公里。
+initial_separation = 20.0
+# 每区四架无人机固定出生正方形的边长，锚定在本区左上角。
+initial_formation_side_km = 30.0
+# 威胁初始位置与无人机及其他威胁至少相距60公里。
+initial_threat_separation = 60.0
+# 目标真实存在时传感器产生正证据的概率。
+detection_probability = 0.8
+# 空白区域被传感器误报为正证据的概率。
+false_alarm_probability = 0.2
+# 完全确认及可视化标记阈值。
+detection_threshold = 0.90
+# 贝叶斯概率图允许的最低置信度。
+min_belief_probability = 0.10
+# 贝叶斯概率图允许的最高置信度。
+max_belief_probability = 0.90
+# 相邻决策步允许的最大航向变化角，单位度。
+max_turn_degrees = 30.0
+# 学习无人机固定飞行速度，米/秒。
+fixed_speed_mps = 100.0
+# 动态威胁固定飞行速度，米/秒。
+threat_speed_mps = 80.0
+# 单个环境决策步代表的仿真时长，单位秒。
+step_interval_secs = 30.0
+# 单局游戏最大环境步数。
+max_steps = "${max_step_per_episode}"
+# 人工渲染刷新帧率。
+fps = 20
+# 游戏画面右侧状态栏宽度，单位像素。
+sidebar_width = 300
+# 显示威胁游走活动圈、航点及引导线（专训调试用）。
+show_threat_roaming = false
+
+[game_config.threat_roaming]
+# 全图分层生成独立圈：每区2个、每子格1个，圈心间距至少100公里。
+# 每40～80步联合刷新并跨子格分配，圈心跳转100～200公里；到达只换圈内航点。
+circle_radius_km = 50.0
+circle_center_min_shift_km = 100.0
+circle_center_max_shift_km = 200.0
+waypoint_reached_km = 5.0
+waypoint_min_distance_km = 10.0
+waypoint_max_distance_km = 25.0
+waypoint_refresh_min_steps = 40
+waypoint_refresh_max_steps = 80
+waypoint_timeout_steps = 200
+perception_radius_km = 100.0
+radial_bins = 10
+angular_bins = 16
+representation_output_dim = 160
+separation_distance_km = 30.0
+danger_distance_km = 15.0
+progress_reward_weight = 0.2
+arrival_reward = 0.5
+circle_penalty = 1.0
+separation_penalty = 0.5
+danger_penalty = 2.0
+
+[replay_buffer_config]
+recent_ratio = 0.35
+tensor_pool = "memory"
+# 同局多组封装模式：同一物理 episode 的多组轨迹封成一个张量样本，按该样本
+# 抽取；[B,G,T+1,K,D] 的有效组铺平为 [N,T+1,K,D]，缺组槽位不作为训练样本。
+sample_packaging = "episode_groups"
+
+[replay_buffer_config.storage]
+data_path = "${resource_dir}/samples"
+scratch_subdir = "replay_scratch"
+
+[agents.0]
+name = "uav_team"
+device = "auto"
+agent_type = "rnn"
+multi_action_mode = "combination"
+# 四个无名组各 4 机；组内顺序即 QMIX 固定槽位顺序，与责任区一一对应。
+agent_groups = [
+    ["drone_0", "drone_1", "drone_2", "drone_3"],
+    ["drone_4", "drone_5", "drone_6", "drone_7"],
+    ["drone_8", "drone_9", "drone_10", "drone_11"],
+    ["drone_12", "drone_13", "drone_14", "drone_15"],
+]
+obs_dim = "${obs_dim}"
+# 组状态维度：区表征 + 本区 4 机飞行状态；显式分组时跳过全局 state_dim 校验。
+state_shape = "${group_state_dim}"
+obs_last_action = true
+obs_agent_id = true
+hidden_dim = 128
+
+[agents.0.actions.0]
+action_key = "heading"
+add_target = false
+allow_null_targets = false
+
+[agents.0.actions.0.parameters.0]
+key = "value"
+values = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+
+[agents.1]
+name = "dynamic_threats"
+device = "auto"
+agent_type = "rnn"
+multi_action_mode = "combination"
+# 八个单成员组重复推理共享固定策略，使用173维圆形观察。
+agent_groups = [
+    ["dynamic_threat_0"],
+    ["dynamic_threat_1"],
+    ["dynamic_threat_2"],
+    ["dynamic_threat_3"],
+    ["dynamic_threat_4"],
+    ["dynamic_threat_5"],
+    ["dynamic_threat_6"],
+    ["dynamic_threat_7"],
+]
+obs_dim = "${threat_obs_dim}"
+state_shape = "${threat_obs_dim}"
+obs_last_action = true
+obs_agent_id = false
+hidden_dim = 128
+# 该Agent只执行威胁专训得到的网络，不创建Learner、不进入主任务模型同步。
+# 先运行 cooperative_search_partition_threat_qmix.toml，再把产物文件名更新到
+# design.threat_model_file。
+model_file_path = "${threat_model_file}"
+fixed_mode = true
+
+[agents.1.actions.0]
+action_key = "heading"
+add_target = false
+allow_null_targets = false
+
+[agents.1.actions.0.parameters.0]
+key = "value"
+values = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+
+[learners.0]
+name = "uav_team"
+device = "auto"
+algo_type = "qmix"
+state_shape = "${group_state_dim}"
+common_reward = true
+standardise_rewards = true
+standardise_returns = false
+grad_norm_clip = 5.0
+gamma = 0.995
+
+[learners.0.algo_config]
+# 捆绑模式容量单位是物理局：500 局 × 4 组 ≈ 2000 条组轨迹（与独立模式同预算）。
+# 不用相同的裸 capacity 数值暗示相同数据预算。
+capacity = 500
+lr = 0.0002
+hidden_dim = 128
+double_q = true
+target_update_interval_or_tau = 0.005
+mixing_embed_dim = 32
+hypernet_layers = 2
+hypernet_embed = 64
+sample_strategy = "recent_biased"
+# 捆绑模式 batch 单位是物理局：16 局 × 4 组 = 64 条组轨迹（与独立模式对齐）。
+batch_size = 16
+learn_times_per_episode = 2
+
+[model_manager_config]
+
+[monte_carlo_method_config]
+
+[grpc_config]
+call_timeout_seconds = 60.0
+task_manager_address = "127.0.0.1:53151"
+replay_buffer_address = "127.0.0.1:53152"
+model_manager_address = "127.0.0.1:53153"
+sim_manager_address = "127.0.0.1:53154"
+monte_carlo_method_address = "127.0.0.1:53155"
+
+[torch_rpc_config]
+world_size = "branch: train=1 + train_sample_count, eval=1 + eval_sample_count"
+init_address = "127.0.0.1:53151"
+call_timeout_seconds = 60.0
+num_worker_threads = 16
+max_concurrent_replay_pushes = 1
+replay_push_permit_poll_interval_seconds = 0.1
+replay_push_permit_lease_timeout_seconds = 120.0
+replay_push_chunk_bytes = 31457280
+
+[eval_config]
+max_episode = 1000
+deterministic = true
+record_sample = false
+agent_compose_type = "order"
+agent_model_path = "${resource_dir}/models/cooperative_search_partitions"
+
+[eval_config.agent_model_files]
+# 训练结束后改成 final_<任务ID>_search/evade_0_uav_team_agent_net.pth。
+uav_team = ""
+# 与 design.threat_model_file 一致：威胁专训产出的固定策略。
+dynamic_threats = "${threat_model_file}"
+
+[eval_config.metric_outputs.steps]
+info_path = "episode_steps"
+agent_reduce = "max"
+episode_reduce = "latest"
+
+[eval_config.metric_outputs.success]
+info_path = "success"
+agent_reduce = "max"
+episode_reduce = "latest"
+
+[eval_config.metric_outputs.target_discovered_count]
+info_path = "target_discovered_count"
+agent_reduce = "max"
+episode_reduce = "latest"
+
+[eval_config.metric_outputs.regions_completed]
+info_path = "regions_completed"
+agent_reduce = "max"
+episode_reduce = "latest"
+
+[eval_config.metric_outputs.region_target_discovered_count]
+info_path = "region_target_discovered_count"
+agent_reduce = "mean"
+episode_reduce = "latest"
+
+[eval_config.metric_outputs.own_loss_count]
+info_path = "own_loss_count"
+agent_reduce = "max"
+episode_reduce = "latest"
+
+[eval_config.metric_outputs.coverage_rate_percent]
+info_path = "coverage_rate_percent"
+agent_reduce = "mean"
+episode_reduce = "latest"
+
+[eval_config.metric_outputs.false_target_count]
+info_path = "false_target_count"
+agent_reduce = "max"
+episode_reduce = "latest"
+
+[eval_config.env_metadata]
+render_mode = "rgb_array"
+render_every_step = false
+render_fps = 60
+save_probability_map_on_episode_end = true
+probability_map_every_n_episodes = 100
+
+[entry]
+evaluation_class = "subjects.cooperative_search.evaluation:CooperativeSearchEvaluation"
+distributed_evaluation_class = "subjects.cooperative_search.evaluation:CooperativeSearchEvalControl"
+
+[log_config]
+enabled_handlers = ["file", "console"]
+log_file_name = "cooperative_search_partitions.log"

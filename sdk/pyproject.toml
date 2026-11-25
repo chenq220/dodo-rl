@@ -1,0 +1,56 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dodorl-sdk"
+version = "0.17.0"
+description = "DodoRL training and evaluation SDK"
+readme = "src/dodorl_sdk/README.md"
+requires-python = ">=3.12,<3.13"
+authors = [{ name = "chenq220" }]
+keywords = [
+  "reinforcement learning",
+  "multi-agent",
+  "sdk",
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Science/Research",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Operating System :: OS Independent",
+]
+dependencies = [
+  "dataclasses-json==0.6.7",
+  "einops==0.8.2",
+  "filelock>=3.13,<4",
+  "gymnasium==1.2.2",
+  "numpy>=2.3.5,<3",
+  "pettingzoo==1.25.0",
+  "toml==0.10.2",
+  "torch==2.9.1",
+  "stable-baselines3==2.8.0",
+  "grpcio==1.81.1",
+  "protobuf==6.33.5",
+  "prettytable==3.17.0",
+  "typing-extensions",
+]
+
+[project.urls]
+Homepage = "https://github.com/chenq220/dodo-rl"
+Repository = "https://github.com/chenq220/dodo-rl"
+Issues = "https://github.com/chenq220/dodo-rl/issues"
+Documentation = "https://github.com/chenq220/dodo-rl/tree/main/sdk"
+
+[project.optional-dependencies]
+sim = ["dodo-sim>=0.4.0,<0.5"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["dodorl_sdk*"]
+
+[tool.setuptools.package-data]
+dodorl_sdk = ["README.md", "Agent.md"]
+
+"dodorl_sdk.dodorl.algos.utils" = ["UPSTREAM.on-policy.md"]

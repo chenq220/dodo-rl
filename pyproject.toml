@@ -1,0 +1,85 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dodo-rl"
+version = "0.17.0"
+description = "Reinforcement learning framework for single- and multi-agent training, evaluation, and model management"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+authors = [{ name = "chenq220" }]
+keywords = [
+    "reinforcement learning",
+    "multi-agent",
+    "distributed training",
+    "qmix",
+    "mappo",
+    "maddpg",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "absl-py>=2.4.0",
+    "boto3==1.43.19",
+    "build==1.4.2",
+    "dataclasses-json==0.6.7",
+    "einops==0.8.1",
+    "filelock>=3.13,<4",
+    "fire==0.7.1",
+    "grpcio==1.81.1",
+    "grpcio-tools==1.81.1",
+    "protobuf==6.33.5",
+    "gymnasium==1.2.2",
+    "kubernetes==35.0.0",
+    "matplotlib==3.10.9",
+    "msgpack-python==0.5.6",
+    "numpy>=2.3.5,<3",
+    "optuna>=4.0.0,<5.0.0",
+    "pettingzoo==1.25.0",
+    "pygame>=2.6.1",
+    "prettytable==3.17.0",
+    # "protobuf==3.20.3",
+    "psutil==7.2.2",
+    "pyproj>=3.7.2,<4",
+    "pyyaml==6.0.3",
+    "stable-baselines3==2.8.0",
+    "toml==0.10.2",
+    "torch==2.9.1",
+    "typing-extensions>=4.12.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/chenq220/dodo-rl"
+Repository = "https://github.com/chenq220/dodo-rl"
+Issues = "https://github.com/chenq220/dodo-rl/issues"
+
+[project.optional-dependencies]
+sim = ["dodo-sim>=0.4.0,<0.5"]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+py-modules = ["config", "module_catalog"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = [
+    "algos*", "common*", "engine*", "envs*", "models*", "portal*",
+    "roles*", "rpc*", "sample*", "scheduler*", "utils*",
+]
+
+[tool.setuptools.package-data]
+"algos.utils" = ["UPSTREAM.on-policy.md"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src", ".", "sdk"]
+testpaths = ["tests", "subjects/tests"]
+norecursedirs = ["sdk", ".git", ".venv", "dist", "build"]
+markers = [
+    "slow: long-running baseline or integration tests included in full pytest tests",
+]

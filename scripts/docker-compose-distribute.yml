@@ -1,0 +1,54 @@
+services:
+  control:
+    image: ${DODORL_IMAGE:-dodorl:base}
+    hostname: control
+    working_dir: /code
+    entrypoint: ["/code/scripts/compose_role.sh"]
+    environment:
+      DODO_RPC: ${DODO_RPC}
+      DODO_MODE: ${DODO_MODE:-train}
+      DODO_TASK_ID: ${DODO_TASK_ID}
+      DODO_COMPOSE_ROLE: control
+      DODO_COMPOSE_SERVICE: control
+      DODO_CONFIG_FILE: ${DODO_CONFIG_FILE}
+      DODO_LOG_DIR: ${DODO_LOG_DIR}
+      DODO_PROGRESS_FILE: ${DODO_PROGRESS_FILE}
+      DODO_CONTROL_MODULE: ${DODO_CONTROL_MODULE}
+      DODO_CONTROL_LOG: ${DODO_CONTROL_LOG}
+      DODO_RPC_LISTEN_HOST: "0.0.0.0"
+      DODO_RPC_CONNECT_HOST: control
+      DODO_RPC_HEALTH_PORT: ${DODO_RPC_HEALTH_PORT:-53151}
+    volumes:
+      - ${DODORL_PROJECT_ROOT:-.}:/code
+    healthcheck:
+      test: ["CMD", "python", "/code/scripts/compose_healthcheck.py"]
+      interval: 2s
+      timeout: 2s
+      retries: 45
+      start_period: 5s
+
+  sample:
+    image: ${DODORL_IMAGE:-dodorl:base}
+    working_dir: /code
+    entrypoint: ["/code/scripts/compose_role.sh"]
+    environment:
+      DODO_RPC: ${DODO_RPC}
+      DODO_MODE: ${DODO_MODE:-train}
+      DODO_TASK_ID: ${DODO_TASK_ID}
+      DODO_COMPOSE_ROLE: sample
+      DODO_COMPOSE_SERVICE: sample
+      DODO_SAMPLE_COUNT: ${DODO_SAMPLE_COUNT}
+      DODO_CONFIG_FILE: ${DODO_CONFIG_FILE}
+      DODO_LOG_DIR: ${DODO_LOG_DIR}
+      DODO_PROGRESS_FILE: ${DODO_PROGRESS_FILE}
+      DODO_RPC_CONNECT_HOST: control
+    volumes:
+      - ${DODORL_PROJECT_ROOT:-.}:/code
+      # bind-mount 在 macOS virtiofs 上 mkdir 不互斥；占槽锁放 Linux 卷里。
+      - compose_sample_slot_lock:/var/dodorl/slot-lock
+    depends_on:
+      control:
+        condition: service_healthy
+
+volumes:
+  compose_sample_slot_lock: {}

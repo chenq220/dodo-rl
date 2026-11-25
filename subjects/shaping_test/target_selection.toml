@@ -1,0 +1,159 @@
+# Target selection：蓝球连接下方 10 个目标球的单智能体 PPO 训练
+# 红球出现：主业务奖励只鼓励红球，目标选择塑形保持中性
+# 红球缺席：4 个随机黄球由 target_selection_shaping 提供选择塑形
+[design]
+task_name = "target_selection"
+root_dir = "{{project_root}}"
+resource_dir = "${root_dir}/artifacts"
+max_step_per_episode = 100
+max_episode = 1001
+mid_eval_episode_interval = 200
+stage_names = ["train"]
+# random：每步按 primary_probability 出现 0/1 个红球；never：红球永不出现。
+game_mode = "random"
+selector_agent_names = ["selector-0"]
+target_names = [
+    "target-0", "target-1", "target-2", "target-3", "target-4",
+    "target-5", "target-6", "target-7", "target-8", "target-9",
+]
+env_agent_names = "${selector_agent_names}"
+# 观测 20 维：每个目标按序提供两个二值特征，共 10 组：
+# [2*i]   target-i 是否为黄色塑形目标
+# [2*i+1] target-i 是否为红色主要目标
+# 灰色普通目标对应 [0, 0]；每步固定恰有 4 个黄色目标，红色目标为 0 或 1 个。
+obs_dim = 20
+state_dim = "${obs_dim}"
+
+sense_name = "${task_name}"
+reward_primary = 1.0
+reward_selection = 0.15
+
+[stages.0]
+name = "train"
+learners = ["selector"]
+
+[stages.0.train_overrides]
+max_episode = "${max_episode}"
+
+[stages.0.learner_overrides.selector.algo_config]
+lr = 0.001
+n_steps = 1024
+n_epochs = 10
+ent_coef = 0.01
+
+[train_config]
+max_episode = "${max_episode}"
+start_epsilon = 0.0
+end_epsilon = 0.0
+sample_learn_max_lag = 1
+temperature = 1.0
+temperature_episodes = 0
+agent_compose_type = "order"
+record_sample = false
+model_save_dir = "${resource_dir}/models/shaping_test/target_selection"
+model_load_dir = "${resource_dir}/models/shaping_test/target_selection"
+result_save_dir = "${resource_dir}/results/shaping_test/target_selection"
+render_video_dir = "${resource_dir}/recordings/shaping_test/target_selection"
+mid_eval_enabled = true
+mid_eval_episode_interval = "${mid_eval_episode_interval}"
+
+[auto_ml_config]
+enabled = false
+subject_name = "${sense_name}"
+
+[env_config]
+sense_name = "${sense_name}"
+use_sim = false
+max_step_per_episode = "${max_step_per_episode}"
+state_dim = "${state_dim}"
+agent_names = "${env_agent_names}"
+
+[env_config.metadata]
+agent_target_names = "${target_names}"
+primary_mode = "${game_mode}"
+primary_probability = 0.5
+output_range = "signed"
+render_mode = "rgb_array"
+render_every_step = false
+
+[env_config.metadata.reward_weights]
+primary = "${reward_primary}"
+selection = "${reward_selection}"
+
+[replay_buffer_config]
+recent_ratio = 0.35
+
+[agents.0]
+name = "selector"
+device = "cpu"
+agent_type = "sb3"
+agent_names = "${selector_agent_names}"
+agent_target_names = "${target_names}"
+obs_dim = "${obs_dim}"
+state_shape = "${state_dim}"
+obs_last_action = false
+obs_agent_id = false
+hidden_dim = 64
+
+[agents.0.actions.0]
+action_key = "target_select"
+add_target = true
+allow_null_targets = false
+
+[agents.0.actions.0.parameters.0]
+key = "select"
+values = [1]
+
+[learners.0]
+name = "selector"
+device = "cpu"
+algo_type = "ppo"
+state_shape = "${state_dim}"
+common_reward = true
+standardise_rewards = true
+standardise_returns = true
+grad_norm_clip = 10.0
+gamma = 0.99
+
+[learners.0.algo_config]
+capacity = 100
+lr = 0.001
+hidden_dim = 64
+batch_size = 1000
+sample_strategy = "on_policy_cursor_steps"
+learn_times_per_episode = 1
+minibatch_size = 64
+n_steps = 1024
+n_epochs = 10
+gae_lambda = 0.95
+clip_range = 0.2
+ent_coef = 0.01
+vf_coef = 0.5
+max_grad_norm = 0.5
+normalize_advantage = true
+
+[model_manager_config]
+
+[monte_carlo_method_config]
+
+[grpc_config]
+task_manager_address = "127.0.0.1:53151"
+replay_buffer_address = "127.0.0.1:53152"
+model_manager_address = "127.0.0.1:53153"
+sim_manager_address = "127.0.0.1:53154"
+monte_carlo_method_address = "127.0.0.1:53155"
+
+[eval_config]
+max_episode = 20
+deterministic = true
+record_sample = false
+agent_model_path = "${resource_dir}/models/shaping_test/target_selection"
+agent_model_file = "final_14710e96_train_0_selector_agent_net.pth"
+
+# 仅独立评估时打开 pygame 窗口；训练仍使用上面的 rgb_array + 不逐步渲染。
+[eval_config.env_metadata]
+primary_mode = "${game_mode}"
+render_mode = "human"
+render_every_step = true
+# 每次显示动作连线和下一步目标状态后等待的秒数，便于人工观察。
+step_delay_seconds = 1.0

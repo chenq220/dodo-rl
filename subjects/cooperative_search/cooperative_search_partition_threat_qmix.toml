@@ -1,0 +1,321 @@
+# 同一文件用于训练和评估：python -m portal.eval -f <本文件> 可生成单局GIF。
+# 四分区单威胁游走：8个单成员组共享RNN，圆形同伴表征，独立奖励。
+# 新模型阶段名roam；旧avoid_targets模型不能加载。
+[design]
+# 任务标识，用于模型、日志和盘中评估产物命名。
+task_name = "cooperative_search_partition_threat_qmix"
+# 工程根目录；由配置模板运行时解析。
+root_dir = "{{project_root}}"
+# 模型和训练结果根目录。
+resource_dir = "${root_dir}/artifacts"
+
+# 正式四分区场景连续地图宽度，单位公里。
+map_width = 600
+# 正式四分区场景连续地图高度，单位公里。
+map_height = 600
+# 复用正式Game的共享概率网格宽度；威胁策略不读取该概率图。
+belief_grid_width = 200
+# 复用正式Game的共享概率网格高度；威胁策略不读取该概率图。
+belief_grid_height = 200
+# 责任区行数；仅决定目标的每区分布，威胁本身不分区、全图活动。
+region_rows = 2
+# 责任区列数。
+region_cols = 2
+# 专训环境不创建无人机，避免威胁策略间接读取或依赖无人机行为。
+num_drones = 0
+# 八个单成员组共享RNN，每个实体独立训练。
+num_dynamic_threats = 8
+# 与正式四分区场景完全一致的待侦察目标总数；每区恰好 10 个。
+num_targets = 40
+# 威胁Agent槽位顺序，必须和正式场景保持一致。
+threat_agent_names = ["dynamic_threat_0", "dynamic_threat_1", "dynamic_threat_2", "dynamic_threat_3", "dynamic_threat_4", "dynamic_threat_5", "dynamic_threat_6", "dynamic_threat_7"]
+# 威胁观察：自身/活动圈/航点/最近同伴13维，加极坐标表征160维。
+threat_obs_dim = 173
+# 全局状态串联各威胁观察；单成员组的QMIX状态使用其173维观察。
+state_dim = "eval: num_dynamic_threats * threat_obs_dim"
+# 单局决策步数与正式场景一致。
+max_step_per_episode = 600
+# 威胁策略专训局数。
+max_episode = 500
+# 前四分之三训练局完成epsilon衰减。
+epsilon_decay_episodes = "eval: max_episode * 3 // 4"
+
+[stages.0]
+name = "roam"
+learners = ["dynamic_threats"]
+clear_replay_buffer = true
+
+[stages.0.train_overrides]
+max_episode = "${max_episode}"
+start_epsilon = 1.0
+end_epsilon = 0.05
+epsilon_decay_episodes = "${epsilon_decay_episodes}"
+
+[train_config]
+max_episode = "${max_episode}"
+sample_task_timeout = 60
+start_epsilon = 1.0
+end_epsilon = 0.05
+epsilon_decay_episodes = "${epsilon_decay_episodes}"
+sample_learn_max_lag = 4
+agent_compose_type = "order"
+record_sample = false
+model_save_dir = "${resource_dir}/models/cooperative_search_partition_threat"
+model_load_dir = "${resource_dir}/models/cooperative_search_partition_threat"
+result_save_dir = "${resource_dir}/results/cooperative_search_partition_threat"
+render_video_dir = "${resource_dir}/recordings/cooperative_search_partition_threat"
+mid_eval_enabled = true
+mid_eval_episode_interval = 100
+seed = "null"
+
+[auto_ml_config]
+enabled = false
+subject_name = "${task_name}"
+
+[env_config]
+sense_name = "cooperative_search_partition_threat_training"
+use_sim = false
+max_step_per_episode = "${max_step_per_episode}"
+step_interval_secs = 30
+state_dim = "${state_dim}"
+agent_names = "${threat_agent_names}"
+
+[env_config.metadata]
+render_mode = "rgb_array"
+render_every_step = false
+
+[game_config]
+# 连续地图宽度，单位公里。
+map_width = "${map_width}"
+# 连续地图高度，单位公里。
+map_height = "${map_height}"
+# 共享概率数据库横向格数；仅为复用正式Game的数据结构。
+belief_grid_width = "${belief_grid_width}"
+# 共享概率数据库纵向格数；仅为复用正式Game的数据结构。
+belief_grid_height = "${belief_grid_height}"
+# 责任区行数；决定目标的每区分布，威胁不分区。
+region_rows = "${region_rows}"
+# 责任区列数。
+region_cols = "${region_cols}"
+# 威胁专训不创建无人机。
+num_drones = "${num_drones}"
+# 八个动态威胁通过单成员组重复推理，在全图活动。
+num_dynamic_threats = "${num_dynamic_threats}"
+# 随机目标总数；每区恰好 10 个，必须与正式四分区场景一致。
+num_targets = "${num_targets}"
+# 无人机传感器半径；专训无无人机，仅保持Game配置一致。
+sensor_radius = 40.0
+# 威胁传感器半径；游走奖励不使用目标距离。
+threat_sensor_radius = 30.0
+# 兼容Game的传感器预警半径；不参与游走奖励。
+threat_warning_radius = 45.0
+# 通信半径在威胁专训中不参与观察或奖励。
+communication_radius = 100.0
+# 随机实体之间的基础最小间距，单位公里。
+initial_separation = 20.0
+# 无人机固定编队边长；专训无无人机，仅保留合法Game配置。
+initial_formation_side_km = 30.0
+# 威胁初始位置与已放置实体及其他威胁的最小距离，单位公里。
+initial_threat_separation = 60.0
+# 传感器探测率；专训不更新无人机概率图，仅保持Game配置一致。
+detection_probability = 0.8
+# 传感器误警率；专训不更新无人机概率图，仅保持Game配置一致。
+false_alarm_probability = 0.2
+# 目标确认阈值；专训不以搜索成功终止。
+detection_threshold = 0.90
+# 共享概率下限；专训不读取概率图。
+min_belief_probability = 0.10
+# 共享概率上限；专训不读取概率图。
+max_belief_probability = 0.90
+# 相邻步最大转向角，单位度。
+max_turn_degrees = 30.0
+# 无人机速度；专训无无人机，仅保持正式Game配置一致。
+fixed_speed_mps = 100.0
+# 威胁固定速度，单位米/秒；每30秒移动2.4公里。
+threat_speed_mps = 80.0
+# 单步仿真时长，单位秒。
+step_interval_secs = 30.0
+# 单局最大步数。
+max_steps = "${max_step_per_episode}"
+# 人工渲染帧率。
+fps = 20
+# 游戏右侧状态栏宽度，单位像素。
+sidebar_width = 300
+# 显示威胁游走活动圈、航点及引导线（专训调试用）。
+show_threat_roaming = true
+# 评估可显示目标真值；目标位置不进入威胁观察或奖励。
+show_target_truth = true
+
+[game_config.threat_roaming]
+# 全图分层生成独立圈：每区2个、每子格1个，圈心间距至少100公里。
+# 每40～80步联合刷新并跨子格分配，圈心跳转100～200公里；到达只换圈内航点。
+circle_radius_km = 50.0
+circle_center_min_shift_km = 100.0
+circle_center_max_shift_km = 200.0
+waypoint_reached_km = 5.0
+waypoint_min_distance_km = 10.0
+waypoint_max_distance_km = 25.0
+waypoint_refresh_min_steps = 40
+waypoint_refresh_max_steps = 80
+waypoint_timeout_steps = 200
+perception_radius_km = 100.0
+radial_bins = 10
+angular_bins = 16
+representation_output_dim = 160
+separation_distance_km = 30.0
+danger_distance_km = 15.0
+progress_reward_weight = 0.2
+arrival_reward = 0.5
+circle_penalty = 1.0
+separation_penalty = 0.5
+danger_penalty = 2.0
+
+[replay_buffer_config]
+recent_ratio = 0.35
+
+[agents.0]
+name = "dynamic_threats"
+device = "auto"
+agent_type = "rnn"
+multi_action_mode = "combination"
+# 每组一个威胁，重复推理共享网络；QMIX组宽为1。
+agent_groups = [
+    ["dynamic_threat_0"],
+    ["dynamic_threat_1"],
+    ["dynamic_threat_2"],
+    ["dynamic_threat_3"],
+    ["dynamic_threat_4"],
+    ["dynamic_threat_5"],
+    ["dynamic_threat_6"],
+    ["dynamic_threat_7"],
+]
+obs_dim = "${threat_obs_dim}"
+state_shape = "${threat_obs_dim}"
+obs_last_action = true
+obs_agent_id = false
+hidden_dim = 128
+
+[agents.0.actions.0]
+action_key = "heading"
+add_target = false
+allow_null_targets = false
+
+[agents.0.actions.0.parameters.0]
+key = "value"
+values = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+
+[learners.0]
+name = "dynamic_threats"
+device = "auto"
+algo_type = "qmix"
+state_shape = "${threat_obs_dim}"
+common_reward = true
+standardise_rewards = true
+standardise_returns = false
+grad_norm_clip = 5.0
+gamma = 0.995
+
+[learners.0.algo_config]
+# 容量单位是单威胁组轨迹：1000条约对应125个八威胁物理局。
+capacity = 1000
+lr = 0.0005
+hidden_dim = 128
+double_q = true
+target_update_interval_or_tau = 0.005
+mixing_embed_dim = 32
+hypernet_layers = 2
+hypernet_embed = 64
+sample_strategy = "recent_biased"
+batch_size = 64
+learn_times_per_episode = 2
+
+[model_manager_config]
+
+[monte_carlo_method_config]
+
+[torch_rpc_config]
+# 中心进程加四个并发采样进程。
+world_size = 5
+init_address = "127.0.0.1:53253"
+call_timeout_seconds = 60.0
+num_worker_threads = 16
+max_concurrent_replay_pushes = 1
+replay_push_permit_poll_interval_seconds = 0.1
+replay_push_permit_lease_timeout_seconds = 120.0
+# 单次 TensorPipe replay push 的步窗口上限；0 表示关闭切分。
+replay_push_chunk_bytes = 31457280
+
+[eval_config]
+# 评估归档独立保存，避免同训练ID的评估配置覆盖训练配置快照。
+artifacts_archive_save_dir = "${resource_dir}/eval_archives"
+max_episode = 1
+deterministic = true
+record_sample = false
+agent_compose_type = "order"
+agent_model_path = "${resource_dir}/archives"
+# 填入归档相对路径：<任务ID>/models/roam/final_<任务ID>_roam_0_dynamic_threats_agent_net.pth。
+agent_model_file = "6f548e77/models/roam/final_6f548e77_roam_0_dynamic_threats_agent_net.pth"
+render_gif_enabled = true
+render_gif_episode_interval = 1
+
+[eval_config.metric_outputs.steps]
+info_path = "steps"
+agent_reduce = "max"
+episode_reduce = "latest"
+
+[eval_config.metric_outputs.inside_roaming_circle]
+info_path = "inside_roaming_circle"
+agent_reduce = "mean"
+episode_reduce = "mean"
+
+[eval_config.metric_outputs.nearest_peer_distance_km]
+info_path = "nearest_peer_distance_km"
+agent_reduce = "mean"
+episode_reduce = "mean"
+
+[eval_config.metric_outputs.dangerous_peer_proximity]
+info_path = "dangerous_peer_proximity"
+agent_reduce = "mean"
+episode_reduce = "mean"
+
+[eval_config.metric_outputs.waypoints_completed]
+info_path = "waypoints_completed"
+agent_reduce = "sum"
+episode_reduce = "latest"
+
+[eval_config.metric_outputs.waypoint_progress]
+info_path = "waypoint_progress"
+agent_reduce = "sum"
+episode_reduce = "sum"
+
+[eval_config.metric_outputs.waypoint_arrival]
+info_path = "waypoint_arrival"
+agent_reduce = "sum"
+episode_reduce = "sum"
+
+[eval_config.metric_outputs.circle_outside]
+info_path = "circle_outside"
+agent_reduce = "sum"
+episode_reduce = "sum"
+
+[eval_config.metric_outputs.peer_clearance]
+info_path = "peer_clearance"
+agent_reduce = "sum"
+episode_reduce = "sum"
+
+[eval_config.metric_outputs.peer_danger]
+info_path = "peer_danger"
+agent_reduce = "sum"
+episode_reduce = "sum"
+
+[eval_config.env_metadata]
+render_mode = "rgb_array"
+render_every_step = true
+
+[entry]
+evaluation_class = "subjects.cooperative_search.evaluation:ThreatRoamingEvaluation"
+distributed_evaluation_class = "subjects.cooperative_search.evaluation:ThreatRoamingEvalControl"
+
+[log_config]
+enabled_handlers = ["file", "console"]
+log_file_name = "cooperative_search_partition_threat.log"

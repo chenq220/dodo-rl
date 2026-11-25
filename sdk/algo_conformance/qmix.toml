@@ -1,0 +1,59 @@
+# QMIX 算法规范性发烟测试配置
+# 格式与训练 TOML（如 cooperative_search_qmix.toml）一致，由 utils/toml_config.py 的 TomlTrainingConfig 解析；
+# 额外增加 [conformance] 小节存放发烟测试专用字段（导入位置、样本类型、episode 参数）。
+
+[design]
+n_agents = 2
+agent_names = ["team-0", "team-1"]
+obs_dim = 4
+state_dim = 8
+
+# ---- 发烟测试专用字段 ----
+[conformance]
+# 算法代码所在目录；非框架内置算法需指定，会加入 sys.path 以便导入。留空则不额外加路径。
+algo_dir = ""
+# Learner 测试对象导入位置。
+learner_import_path = "algos.training.qmix_learner.QMixerLearner"
+# Agent 测试对象导入位置。
+agent_import_path = "algos.modules.agents.rnn_agent.RNNAgent"
+# multi_agent -> EpisodeTransition，single_agent -> SAEpisodeTransition
+sample_type = "multi_agent"
+# 每局步数 / 触发一次 update 所需 episode 数
+episode_steps = 4
+episode_count = 2
+
+# ---- 环境配置（发烟测试只用 state_dim 和 max_step_per_episode 构建环境桩）----
+[env_config]
+use_sim = false
+max_step_per_episode = 8
+state_dim = "${state_dim}"
+agent_names = "${agent_names}"
+
+# ---- Agent 配置 ----
+[agents.0]
+name = "team"
+agent_names = "${agent_names}"
+obs_dim = "${obs_dim}"
+state_shape = "${state_dim}"
+obs_last_action = true
+obs_agent_id = true
+hidden_dim = 64
+device = "cpu"
+
+[agents.0.actions.0]
+action_key = "move"
+add_target = false
+
+[[agents.0.actions.0.parameters]]
+key = "direction"
+values = [0, 1, 2]
+
+# ---- Learner 配置 ----
+[learners.0]
+name = "team"
+algo_type = "qmix"
+device = "cpu"
+state_shape = "${state_dim}"
+
+[learners.0.algo_config]
+# 留空则使用 QmixConfig 全部默认值。

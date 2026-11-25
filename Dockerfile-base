@@ -1,0 +1,48 @@
+FROM --platform=linux/amd64 python:3.12.13-slim-trixie
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+WORKDIR /code
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+           ca-certificates \
+           tzdata \
+           locales \
+           fonts-noto-cjk \
+           iproute2 \
+        net-tools \
+        vim \
+        curl \
+        iputils-ping \
+        procps \
+        lsof \
+        tree \
+        dnsutils \
+        coreutils \
+        iptables \
+        unzip \
+        wget \
+        tcpdump \
+        sysstat \
+        iotop \
+       && rm -rf /var/lib/apt/lists/*
+
+ENV TZ=Asia/Shanghai
+
+ENV LANG=zh_CN.UTF-8 \
+    LANGUAGE=zh_CN:zh \
+    LC_ALL=zh_CN.UTF-8
+
+RUN ln -snf /usr/share/zoneinfo/${TZ} /etc/localtime \
+    && echo ${TZ} > /etc/timezone \
+    && sed -i 's/^# *zh_CN.UTF-8 UTF-8/zh_CN.UTF-8 UTF-8/' /etc/locale.gen \
+    && locale-gen zh_CN.UTF-8
+
+COPY requirements.txt /code/requirements.txt
+
+RUN python -m pip install --no-cache-dir --upgrade pip \
+    && python -m pip install --no-cache-dir -r /code/requirements.txt
+
+# 源码、科目配置和 sim_config.ini 由后续镜像层或运行时挂载提供。

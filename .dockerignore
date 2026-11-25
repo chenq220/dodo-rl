@@ -1,0 +1,40 @@
+# 运行期产物：容器启动时按 WORKDIR 重新生成或通过挂载提供
+logs/
+resources/
+**/logs/
+**/resources/
+artifacts/archives/
+
+# 本地 Python 环境与缓存
+.venv/
+venv/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*.so
+
+# Git、IDE 和操作系统文件
+.git/
+.gitignore
+.idea/
+.run/
+.DS_Store
+
+# 本地构建产物
+build/
+dist/
+dist_sdk/
+*.egg-info/
+.eggs/
+
+# 测试与工具缓存
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# 临时文件和日志
+*.log
+*.tmp
+*.swp

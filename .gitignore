@@ -1,0 +1,36 @@
+.venv
+.idea
+.agents/
+.cursor/*
+!.cursor/skills
+!.cursor/skills/**
+.run/
+.pytest_cache/
+*.egg-info/
+.eggs/
+build/
+dist/
+__pycache__/
+*.pyc
+*.log
+.DS_Store
+
+logs/
+resources/
+artifacts/
+artifacts/archives/
+dist_sdk/
+# 根目录本机仿真资源清单，由 SimManager 运行时生成或手工提供。
+/sim_config.ini
+
+# AOCI agent host integration (machine-bound; do not commit)
+.codex/config.toml
+.codex/config.toml.backup.*
+
+# 本地 AOCI 索引、基线和初始化文件
+/.aoci/
+/aoci.txt
+/aoci.meta.txt
+/aoci.code.txt
+/aoci.database.txt
+/AGENTS.md

@@ -1,0 +1,150 @@
+# Region activity：单智能体 PPO，蓝点在随机六边形目标区域内活动
+# 奖励 = region_activity_shaping × reward_activity
+[design]
+task_name = "region_activity"
+root_dir = "{{project_root}}"
+resource_dir = "${root_dir}/artifacts"
+max_step_per_episode = 100
+max_episode = 1201
+mid_eval_episode_interval = 200
+stage_names = ["train"]
+
+actor_agent_names = ["actor-0"]
+env_agent_names = "${actor_agent_names}"
+# 观测态势 8 维（RegionActivityEnv._obs_from_state，各分量归一化到 [0, 1]）：
+# [0] observer_x / scene_width
+# [1] observer_y / scene_height
+# [2] rel_x：六边形中心相对 observer 的 dx，clip(dx/width, -1, 1) * 0.5 + 0.5
+# [3] rel_y：六边形中心相对 observer 的 dy，同上
+# [4] hex_radius / MAX_HEX_RADIUS
+# [5] inside_hex：点在六边形内为 1，否则 0
+# [6] d_out_norm：区外到边界距离 / scene_width，区内为 0
+# [7] hex_speed_norm：六边形移动速度 / REGION_SPEED * 0.5 + 0.5，静止时约 0.5
+obs_dim = 8
+state_dim = "${obs_dim}"
+
+sense_name = "${task_name}"
+reward_activity = 0.15
+leave_decay_coef = 0.01
+
+[stages.0]
+name = "train"
+learners = ["actor"]
+
+[stages.0.train_overrides]
+max_episode = "${max_episode}"
+
+[stages.0.learner_overrides.actor.algo_config]
+lr = 0.0003
+n_steps = 1024
+n_epochs = 10
+ent_coef = 0.01
+batch_size = 1000
+sample_strategy = "on_policy_cursor_steps"
+
+[train_config]
+max_episode = "${max_episode}"
+start_epsilon = 0.0
+end_epsilon = 0.0
+sample_learn_max_lag = 1
+temperature = 1.0
+temperature_episodes = 0
+agent_compose_type = "order"
+record_sample = false
+model_save_dir = "${resource_dir}/models/shaping_test/region_activity"
+model_load_dir = "${resource_dir}/models/shaping_test/region_activity"
+result_save_dir = "${resource_dir}/results/shaping_test/region_activity"
+render_video_dir = "${resource_dir}/recordings/shaping_test/region_activity"
+mid_eval_enabled = true
+mid_eval_episode_interval = "${mid_eval_episode_interval}"
+seed = "3638735361"
+
+[auto_ml_config]
+enabled = false
+subject_name = "${sense_name}"
+
+[env_config]
+sense_name = "${sense_name}"
+use_sim = false
+max_step_per_episode = "${max_step_per_episode}"
+state_dim = "${state_dim}"
+agent_names = "${env_agent_names}"
+
+[env_config.metadata]
+leave_decay_coef = "${leave_decay_coef}"
+shaping_gamma = 1.0
+output_range = "unit"
+# 先 false 验证静态六边形守区，再改 true 测移动目标框
+region_moving = true
+render_mode = "rgb_array"
+render_every_step = false
+
+[env_config.metadata.reward_weights]
+activity = "${reward_activity}"
+
+[replay_buffer_config]
+recent_ratio = 0.35
+
+[agents.0]
+name = "actor"
+device = "cpu"
+agent_type = "sb3"
+agent_names = "${actor_agent_names}"
+obs_dim = "${obs_dim}"
+state_shape = "${state_dim}"
+obs_last_action = false
+obs_agent_id = false
+hidden_dim = 64
+
+[agents.0.actions.0]
+action_key = "region_move"
+add_target = false
+allow_null_targets = true
+
+[agents.0.actions.0.parameters.0]
+key = "action_id"
+values = [0, 1, 2, 3]
+
+[learners.0]
+name = "actor"
+device = "cpu"
+algo_type = "ppo"
+state_shape = "${state_dim}"
+common_reward = true
+standardise_rewards = true
+standardise_returns = true
+grad_norm_clip = 10.0
+gamma = 0.99
+
+[learners.0.algo_config]
+capacity = 100
+lr = 0.001
+hidden_dim = 64
+batch_size = 1000
+sample_strategy = "on_policy_recent_steps"
+learn_times_per_episode = 1
+minibatch_size = 64
+n_steps = 1024
+n_epochs = 10
+gae_lambda = 0.95
+clip_range = 0.2
+ent_coef = 0.01
+vf_coef = 0.5
+max_grad_norm = 0.5
+normalize_advantage = true
+
+[model_manager_config]
+
+[monte_carlo_method_config]
+
+[grpc_config]
+task_manager_address = "127.0.0.1:53151"
+replay_buffer_address = "127.0.0.1:53152"
+model_manager_address = "127.0.0.1:53153"
+sim_manager_address = "127.0.0.1:53154"
+monte_carlo_method_address = "127.0.0.1:53155"
+
+[eval_config]
+max_episode = 5
+deterministic = true
+record_sample = false

@@ -1,0 +1,13 @@
+# 主机有 NVIDIA runtime 时由 start_compose_distributed.sh 叠加上。
+# 不用 gpus:（部分 compose schema 不认），走 nvidia runtime。
+services:
+  control:
+    runtime: nvidia
+    environment:
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+  sample:
+    runtime: nvidia
+    environment:
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
